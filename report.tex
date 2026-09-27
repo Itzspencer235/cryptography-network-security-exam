@@ -1,0 +1,217 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{parskip}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10},
+    columns=fullflexible
+}
+
+\title{\includegraphics[width=3cm,height=3cm,keepaspectratio]{image.png}\\[1em] Cryptography and Network Security \\ \large Integrated Situation - Technical Report}
+\author{4202670024 GBOUSSOUBO IGNAZIANKI \\ ETT B-Tech, Year 4, ULK Polytechnic Institute}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report documents the security assessment and toolkit developed for the
+ULK Polytechnic student records system, covering risk assessment, an
+encryption and integrity-checking programme, and network traffic filtering
+rules.
+\end{abstract}
+
+\tableofcontents
+\newpage
+\section{Risk Assessment}
+
+\subsection{Assets, Vulnerabilities, and Consequences}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{3.5cm}p{4cm}p{6cm}}
+\toprule
+\textbf{Asset} & \textbf{Vulnerability} & \textbf{Consequence} \\
+\midrule
+Student records database & Weak staff passwords & Attacker guesses/brute-forces login, leading to data breach or record tampering \\
+Inter-campus file transfer & Unencrypted transfer & Data intercepted or altered in transit (man-in-the-middle) \\
+Records server & Outdated software combined with guest network access & Unpatched server reachable by anyone on the guest network, leading to full compromise \\
+\bottomrule
+\end{tabular}
+\caption{Assets, vulnerabilities, and consequences}
+\end{table}
+
+\subsection{Risk Ranking}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{0.7cm}p{4cm}p{1.8cm}p{1.8cm}p{5cm}}
+\toprule
+\textbf{Rank} & \textbf{Risk} & \textbf{Likelihood} & \textbf{Impact} & \textbf{Reason} \\
+\midrule
+1 & Outdated software + guest access & High & High & No credentials needed; matches the suspicious external connection attempts already observed \\
+2 & Weak staff passwords & Medium-High & High & Easy to exploit, gives full legitimate-looking access \\
+3 & Unencrypted file transfer & Medium & Medium--High & Attacker needs network-path position first \\
+\bottomrule
+\end{tabular}
+\caption{Risk ranking by likelihood and impact}
+\end{table}
+
+\subsection{Recommended Controls}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{5cm}p{8cm}}
+\toprule
+\textbf{Risk} & \textbf{Control} \\
+\midrule
+Outdated software + guest access & Segment guest network away from the server; apply regular patching \\
+Weak passwords & Enforce a strong password policy and multi-factor authentication (MFA) \\
+Unencrypted transfer & Encrypt transfers (SFTP/TLS) and encrypt files before sending \\
+\bottomrule
+\end{tabular}
+\caption{Recommended controls}
+\end{table}
+
+\section{Encryption and Integrity Toolkit}
+
+A Python command-line toolkit, \texttt{security\_toolkit.py}, was developed
+using the \texttt{cryptography} library (Fernet symmetric encryption) and
+the built-in \texttt{hashlib} module (SHA-256).
+
+\subsection{Functions}
+
+\begin{itemize}
+    \item \textbf{Key generation}: creates a random Fernet key, stored outside the repository (\texttt{key.key}, excluded via \texttt{.gitignore}).
+    \item \textbf{Encryption}: reads a student record file and writes an encrypted \texttt{.enc} version using the key.
+    \item \textbf{Decryption}: reverses the process, reconstructing the exact original file from the \texttt{.enc} file and the key.
+    \item \textbf{Integrity check}: computes a SHA-256 hash of a file and can later re-check the file against the saved hash to detect any modification.
+    \item \textbf{Error handling}: every operation checks for missing files, missing keys, and invalid/wrong keys, and exits with a clear error message instead of crashing.
+\end{itemize}
+
+\subsection{Test Evidence}
+
+The toolkit was run end-to-end against a sample student record file
+(\texttt{sample\_student\_record.csv}):
+
+\begin{lstlisting}
+$ python3 security_toolkit.py encrypt sample_student_record.csv sample_student_record.enc --key-file key.key
+Encrypted 'sample_student_record.csv' -> 'sample_student_record.enc'
+
+$ python3 security_toolkit.py decrypt sample_student_record.enc sample_student_record.decrypted.csv --key-file key.key
+Decrypted 'sample_student_record.enc' -> 'sample_student_record.decrypted.csv'
+
+$ diff sample_student_record.csv sample_student_record.decrypted.csv
+(no output -- files are identical)
+
+$ python3 security_toolkit.py hash sample_student_record.csv --save sample_student_record.sha256
+SHA-256 of 'sample_student_record.csv': 55e91847c70d981356b9c6f522e60c53c8e86e409598886389fad893f4dfd609
+Saved to 'sample_student_record.sha256'
+
+$ python3 security_toolkit.py verify sample_student_record.csv --hash-file sample_student_record.sha256
+OK: 'sample_student_record.csv' matches the recorded hash. No tampering detected.
+\end{lstlisting}
+
+This confirms: (1) encryption and decryption are correct and lossless, since
+the decrypted file is byte-for-byte identical to the original, and (2) the
+SHA-256 integrity check correctly identifies an unmodified file, and (as
+tested separately) correctly flags a modified one with a mismatch warning.
+
+\section{Network Traffic Filtering}
+
+\subsection{Environment Note}
+
+No physical or virtual lab network was available for this exam. The rules
+below are the actual \texttt{iptables} commands that would be applied on
+the records server (or its gateway) in a real deployment. To still produce
+genuine, reproducible test evidence, a Python simulator
+(\texttt{firewall\_simulator.py}) re-implements the identical rule logic,
+evaluated in the same top-to-bottom order as \texttt{iptables}, and runs
+real connection-attempt tests against it.
+
+\subsection{Network Assumptions}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{6cm}p{6cm}}
+\toprule
+\textbf{Item} & \textbf{Value} \\
+\midrule
+Records server & 10.0.0.10 \\
+Service port & 8443 \\
+Staff network (authorised) & 10.0.1.0/24 \\
+Guest network (blocked) & 10.0.2.0/24 \\
+Suspicious external address & 203.0.113.50 \\
+\bottomrule
+\end{tabular}
+\caption{Network assumptions used for the firewall configuration}
+\end{table}
+
+\subsection{Firewall Rules}
+
+\begin{lstlisting}
+# (a) Block guest network access to the student records server
+iptables -A INPUT -s 10.0.2.0/24 -d 10.0.0.10 -j DROP
+
+# (b) Permit authorised staff network access to the service
+iptables -A INPUT -s 10.0.1.0/24 -d 10.0.0.10 -p tcp --dport 8443 -j ACCEPT
+
+# (c) Block other inbound access to that service
+iptables -A INPUT -d 10.0.0.10 -p tcp --dport 8443 -j DROP
+
+# Default policy
+iptables -P INPUT DROP
+\end{lstlisting}
+
+\subsection{Test Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{0.5cm}p{5cm}p{2cm}p{2cm}p{1.5cm}}
+\toprule
+\textbf{\#} & \textbf{Test} & \textbf{Expected} & \textbf{Actual} & \textbf{Result} \\
+\midrule
+1 & Staff $\rightarrow$ records service (10.0.1.50) & ACCEPT & ACCEPT & PASS \\
+2 & Guest $\rightarrow$ records service (10.0.2.75) & DROP & DROP & PASS \\
+3 & Unknown external host $\rightarrow$ service (203.0.113.50) & DROP & DROP & PASS \\
+\bottomrule
+\end{tabular}
+\caption{Firewall test results (simulated)}
+\end{table}
+
+All three tests passed, confirming the rules correctly permit staff traffic
+to the service while blocking guest and unrecognised external traffic.
+
+\section{Conclusion}
+
+This project identified and ranked three key risks to the student records
+system -weak staff passwords, unencrypted inter-campus file transfer, and
+an outdated, guest-accessible server  and proposed practical controls for
+each. A Python toolkit was implemented and tested to provide file
+encryption, decryption, and SHA-256 integrity verification, successfully
+demonstrating correct round-trip encryption and tamper detection. Firewall
+rules were designed to restrict access to the records server to authorised
+staff only, and validated through a rule-equivalent simulation, with all
+three required tests passing.
+
+\vspace{1em}
+\noindent\textbf{GitHub repository:} \url{https://github.com/Itzspencer235/cryptography-network-security-exam}
+
+\end{document}

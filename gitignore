@@ -1,0 +1,12 @@
+# Never commit the encryption key
+key.key
+*.key
+
+# Python
+__pycache__/
+*.pyc
+
+# LaTeX build artifacts (will matter once we add the report)
+*.aux
+*.log
+*.out
